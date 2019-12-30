@@ -3,6 +3,7 @@
 import networkx as nx
 import numpy as np
 from tqdm import tqdm_notebook as tqdm
+from collections import deque
 
 # ------------------------------------ #
 
@@ -11,7 +12,7 @@ from tqdm import tqdm_notebook as tqdm
 # 出力:エッジ確率に従って、シュミレーション後に残った隣接リスト(numpy)[[from_node, to_node],...]
 def live_edge_graph_edges(p, p_len):
     rand = np.random.uniform(0, 1, p_len)
-    return np.array([[p[i][0], p[i][1]] for i in range(p_len) if rand[i] > p[i][2]])
+    return np.array([[p[i][0], p[i][1]] for i in range(p_len) if rand[i] < p[i][2]])
 
 # live_edge_graph_edges(network_np, len(network_np))
 # array([[0.0000e+00, 4.0000e+00],
@@ -26,90 +27,53 @@ def live_edge_graph_edges(p, p_len):
 
 # ------------------------------------ #
 
-# シュミレーション後のグラフについて、影響数を計算
-# 入力:重みなし隣接リスト, シード集合
-# 出力:(int)影響数
-def reach_node_size(live_edge, seed):
-    # live_edgeグラフ作成
-    H = nx.DiGraph()
-    H.add_edges_from(live_edge)
-    
-    # 到達可能な頂点集合をシードごとに和集合して求める
-    reach_set = set([])
-    for s in seed:
-        # たどり着いているノードがシードでない場合だけ計算する
-        if s not in reach_set:
-            reach_set |= set(nx.dfs_preorder_nodes(H,source=s))
-    return len(reach_set)
+# シミュレーション(幅優先探索)
+# アルゴリズム by https://todo314.hatenadiary.org/entry/20151013/1444720166
+def IC_simulation(G, S):
+    visited = {s:s for s in S}
+    queue = deque(S)
+    while queue:
+        v = queue.popleft()
+        out_node = G.successors(v)
+        for u in out_node:
+            if not (u in visited):
+                coin = np.random.uniform(0,1)
+                if G[v][u]["weight"] > coin:
+                    queue.append(u)
+                    visited[u] = v
+    return visited
 
-# simulation = live_edge_graph_edges(network_np, len(network_np))
-# reach_node_size(simulation, [i for i in range(50)])
-# 23440
+# 空の有向グラフを作成
+# G = nx.DiGraph()
+# 重み付きの枝を加える
+# G.add_weighted_edges_from([[0,1,0.2],
+#                            [0,2,0.3],
+#                            [0,1,0.4]
+#                           ])
+# IC_simulation(G, [0])
+# {訪問できる頂点:pre頂点,...}
+
 
 # ------------------------------------ #
 
 # ------------------------------------ #
 
-# 影響数の期待値(近似)
-# ε近似を確率1-δで達成する
-# 入力:枝確率, シード, 近似率ε, δ)
-# 出力:(int)近似値
-def approx_expect_inf_size(p, seed, epsi, delta):
-    # グラフの作成
-    G = nx.DiGraph()
-    G.add_weighted_edges_from(p)
-    
-    # 頂点数
-    n = G.number_of_nodes()
-    
+# 試行回数を算出して、ICモデルでの期待影響サイズを返す関数
+def approx_inf_size_IC(G, seed, epsi, delta):
     # 試行回数を算出する
-    T = int(((n**2) / (epsi**2)) * np.log(1/delta)) + 1
-        
-    # 各回のシュミレーションの結果の和が格納される
-    X = 0
-    len_p = len(p)
-    # T回シュミレーションしていく
-    for i in tqdm(range(T)):
-        # live_edgeグラフを作る
-        live_edge = live_edge_graph_edges(p, len_p)
-        X += reach_node_size(live_edge, seed)
-    expected_num = X / T
-    return expected_num
-
-# ------------------------------------ #
-
-# ------------------------------------ #
-
-# シュミレーションの結果的に変化していない場合は、回数を減らす関数
-# 影響数の期待値(近似)
-# 入力:枝確率, シード, ε, δ, 変化数)
-# 出力:ヒューリスティック的な値
-def approx_expect_inf_size_heuris(p, seed, epsi, delta, change):
-    # グラフの作成
-    G = nx.DiGraph()
-    G.add_weighted_edges_from(p)
-    
-    # 頂点数
     n = G.number_of_nodes()
-    
-    # 試行回数を算出する
     T = int(((n**2) / (epsi**2)) * np.log(1/delta)) + 1
-        
-    # 各回のシュミレーションの結果の和が格納される
-    X = 0
-    len_p = len(p)
-    # T回シュミレーションしていく
-    for i in tqdm(range(T)):
-        # live_edgeグラフを作る
-        live_edge = live_edge_graph_edges(p, len_p)
-        X += reach_node_size(live_edge, seed)
-        
-        # 前回と比較して変化なし
-        # if (i != 0) and (abs(((X / (i+1)) - expected_num) / expected_num) < rate_change):
-        if (i != 0) and (abs(((X / (i+1)) - expected_num) < change)):    
-            return expected_num
-        
-        expected_num = X / (i+1)
-    return expected_num
+    inf_size = sum([len(IC_simulation(G, seed)) for i in tqdm(range(T))])
+    return inf_size / T
 
 # ------------------------------------ #
+
+# ------------------------------------ #
+
+# 試行回数を指定して、ICモデルでの期待影響サイズを返す関数
+def approx_inf_size_IC_T(G, seed, T):
+    inf_size = sum([len(IC_simulation(G, seed)) for i in range(T)])
+    return inf_size / T
+
+# ------------------------------------ #
+

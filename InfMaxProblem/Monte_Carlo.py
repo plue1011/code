@@ -12,7 +12,9 @@ from collections import deque
 # 出力:エッジ確率に従って、シュミレーション後に残った隣接リスト(numpy)[[from_node, to_node],...]
 def live_edge_graph_edges(p, p_len):
     rand = np.random.uniform(0, 1, p_len)
-    return np.array([[p[i][0], p[i][1]] for i in range(p_len) if rand[i] < p[i][2]])
+    prob = p.T[2]
+    l = np.where(rand < prob)[0]
+    return np.array([[p[i][0], p[i][1]] for i in l])
 
 # live_edge_graph_edges(network_np, len(network_np))
 # array([[0.0000e+00, 4.0000e+00],
@@ -34,14 +36,18 @@ def IC_simulation(G, S):
     queue = deque(S)
     while queue:
         v = queue.popleft()
-        out_node = G.successors(v)
-        for u in out_node:
-            if not (u in visited):
-                coin = np.random.uniform(0,1)
-                if G[v][u]["weight"] > coin:
+        weighted_edges = np.array([[i, G[v][i]["weight"]] for i in G[v]])
+        if len(weighted_edges) != 0:
+            prob = weighted_edges.T[1]
+            rand = np.random.uniform(0, 1, len(prob))
+            l = np.where(rand < prob)[0]
+
+            out_node = weighted_edges[l].T[0]
+            for u in out_node:
+                if not (u in visited):
                     queue.append(u)
                     visited[u] = v
-    return visited
+    return len(visited)
 
 # 空の有向グラフを作成
 # G = nx.DiGraph()
@@ -77,3 +83,17 @@ def approx_inf_size_IC_T(G, seed, T):
 
 # ------------------------------------ #
 
+# ------------------------------------ #
+
+def experiment_IC(G, seed, T=10000):
+    inf_sum = 0
+    inf_size_list = []
+    for i in range(T):
+        simulation = mc.IC_simulation(G, seed)
+        
+        # 影響数
+        inf_sum += simulation
+        inf_size_list.append(inf_sum / (i+1))
+    return inf_size_list, inf_sum/T
+
+# ------------------------------------ #
